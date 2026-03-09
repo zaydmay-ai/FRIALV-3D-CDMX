@@ -3,93 +3,86 @@ import plotly.graph_objects as go
 import fitz  # PyMuPDF
 from PIL import Image
 import numpy as np
+import cv2
 
-# Configuración Profesional
-st.set_page_config(page_title="Frialv 3D CDMX - Maestro", layout="wide", page_icon="⚡")
+st.set_page_config(page_title="Frialv 3D CDMX - Pro", layout="wide", page_icon="⚡")
+st.title("⚡ Frialv: Escáner de Planos Inteligente")
 
-st.title("⚡ Frialv: Ingeniería Eléctrica 3D")
-st.caption("Sistema Automatizado de Conteo y Presupuesto")
-
-# --- BARRA LATERAL (CONTROL TOTAL) ---
+# --- MENÚ LATERAL ---
 with st.sidebar:
-    st.header("📋 Parámetros de Obra")
-    archivo_pdf = st.file_uploader("📂 Cargar Plano PDF", type=["pdf"])
+    st.header("1. Carga de Archivos")
+    archivo_pdf = st.file_uploader("📂 Sube el Plano (PDF)", type=["pdf"])
+    archivo_simbolo = st.file_uploader("🎯 Sube el Símbolo a buscar (Imagen)", type=["png", "jpg", "jpeg"])
     
-    st.subheader("📏 Calibración de Escala")
-    escala_manual = st.number_input("Metros por cada 100 píxeles", value=2.5, help="Ajusta según la escala del plano")
-    
-    st.subheader("💰 Costos Unitarios")
-    p_conduit = st.number_input("Tubo Conduit 3/4 ($/m)", value=38.0)
-    p_cable = st.number_input("Cable Cal. 12 ($/m)", value=22.0)
-    p_mano_obra = st.number_input("Mano de Obra ($/salida)", value=350.0)
+    st.divider()
+    st.header("2. Costos y Escala")
+    escala = st.number_input("Metros por cada 100px", value=2.0)
+    p_tubo = st.number_input("Precio Tubo $/m", value=35.0)
+    p_cable = st.number_input("Precio Cable $/m", value=22.0)
 
-# --- LÓGICA PRINCIPAL ---
-if archivo_pdf:
-    # 1. Procesar el Plano
-    with st.spinner('Procesando Plano Maestro...'):
+# --- PROCESAMIENTO ---
+if archivo_pdf and archivo_simbolo:
+    with st.spinner('Analizando plano...'):
+        # Leer PDF
         doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
         pagina = doc.load_page(0)
         pix = pagina.get_pixmap(matrix=fitz.Matrix(2, 2))
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        img_plano = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        plano_cv = cv2.cvtColor(np.array(img_plano), cv2.COLOR_RGB2BGR)
+        plano_gris = cv2.cvtColor(plano_cv, cv2.COLOR_BGR2GRAY)
+
+        # Leer Símbolo
+        img_simbolo = Image.open(archivo_simbolo)
+        simbolo_cv = cv2.cvtColor(np.array(img_simbolo), cv2.COLOR_RGB2BGR)
+        simbolo_gris = cv2.cvtColor(simbolo_cv, cv2.COLOR_BGR2GRAY)
+        w, h = simbolo_gris.shape[::-1]
+
+        # BUSCAR SÍMBOLOS (Detección IA)
+        res = cv2.matchTemplate(plano_gris, simbolo_gris, cv2.TM_CCOEFF_NORMED)
+        umbral = 0.7 
+        loc = np.where(res >= umbral)
         
-        # Simulación de Detección de Símbolos (Aquí entrará la IA después)
-        # Generamos puntos aleatorios simulando que detectó cajas en el plano
-        puntos_x = [100, 300, 500, 700, 300]
-        puntos_y = [200, 200, 400, 400, 600]
-        etiquetas = ["Tablero", "Caja 1", "Caja 2", "Caja 3", "Contacto"]
-        alturas = [1.2, 2.4, 2.4, 2.4, 0.5] # Alturas estándar Z
+        puntos = []
+        for pt in zip(*loc[::-1]):
+            if not any(np.linalg.norm(np.array(pt) - np.array(p)) < 20 for p in puntos):
+                puntos.append(pt)
 
-    # 2. Visualización 2D (El Plano)
-    st.subheader("🖼️ Plano Analizado")
-    st.image(img, caption="Plano cargado - Símbolos detectados automáticamente")
+        st.success(f"✅ ¡Se encontraron {len(puntos)} símbolos!")
 
-    # 3. Visualización 3D (La Instalación)
-    st.subheader("🏗️ Proyecto en 3D")
-    
-    # Convertir pixeles a metros reales usando la escala
-    x_m = [px * (escala_manual / 100) for px in puntos_x]
-    y_m = [py * (escala_manual / 100) for py in puntos_y]
+        # --- MOSTRAR RESULTADOS ---
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("📍 Plano Detectado")
+            for pt in puntos:
+                cv2.rectangle(plano_cv, pt, (pt[0] + w, pt[1] + h), (255, 140, 0), 4)
+            st.image(plano_cv, channels="BGR", use_container_width=True)
 
-    fig = go.Figure()
-    
-    # Dibujar Tuberías
-    fig.add_trace(go.Scatter3d(
-        x=x_m, y=y_m, z=alturas,
-        mode='lines+markers+text',
-        text=etiquetas,
-        line=dict(color='orange', width=12),
-        marker=dict(size=8, color='black'),
-        name="Conduit Frialv"
-    ))
+        with c2:
+            st.subheader("🏗️ Render 3D")
+            x_m = [p[0] * (escala/100) for p in puntos]
+            y_m = [p[1] * (escala/100) for p in puntos]
+            z_m = [0.5] * len(puntos) # Altura contacto
 
-    fig.update_layout(scene=dict(aspectmode='data'), height=600)
-    st.plotly_chart(fig, use_container_width=True)
+            fig = go.Figure(data=[go.Scatter3d(
+                x=x_m, y=y_m, z=z_m, mode='markers+lines',
+                marker=dict(size=6, color='orange'),
+                line=dict(color='orange', width=4)
+            )])
+            fig.update_layout(scene=dict(aspectmode='data'), margin=dict(l=0,r=0,b=0,t=0))
+            st.plotly_chart(fig, use_container_width=True)
 
-    # 4. Cálculo de Materiales y Presupuesto
-    distancia_total = 0
-    for i in range(len(x_m) - 1):
-        d = ((x_m[i+1]-x_m[i])**2 + (y_m[i+1]-y_m[i])**2 + (alturas[i+1]-alturas[i])**2)**0.5
-        distancia_total += d
-
-    st.write("---")
-    st.header("📊 Resumen Económico del Proyecto")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Total Tubería", f"{distancia_total:.2f} m")
-        st.write(f"Tubo: ${distancia_total * p_conduit:,.2f}")
+        # --- PRESUPUESTO ---
+        dist = 0
+        if len(x_m) > 1:
+            for i in range(len(x_m)-1):
+                dist += np.sqrt((x_m[i+1]-x_m[i])**2 + (y_m[i+1]-y_m[i])**2)
         
-    with col2:
-        st.metric("Total Cable", f"{distancia_total * 3:.2f} m")
-        st.write(f"Cable: ${(distancia_total * 3) * p_cable:,.2f}")
-        
-    with col3:
-        costo_total = (distancia_total * p_conduit) + ((distancia_total * 3) * p_cable) + (len(puntos_x) * p_mano_obra)
-        st.metric("Presupuesto Final", f"${costo_total:,.2f}")
-        st.caption("Incluye Material + Mano de Obra")
-
-    if st.button("📝 Generar Reporte para el Cliente"):
-        st.success("✅ Reporte Frialv generado. ¡Listo para enviar!")
+        st.divider()
+        st.subheader("📊 Resumen de Inversión")
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Salidas", len(puntos))
+        k2.metric("Tubería", f"{dist:.2f} m")
+        total = (dist * p_tubo) + (dist * 3 * p_cable)
+        k3.metric("Total Material", f"${total:,.2f}")
 else:
-    st.info("👋 Martin, sube el plano de la obra para empezar a calcular.")
+    st.warning("⚠️ Sube el PDF y una captura del símbolo (ej. el dibujo de un contacto) para activar el sistema.")
