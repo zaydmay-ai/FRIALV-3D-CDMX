@@ -3,6 +3,6 @@ plotly
 pandas
 numpy
 pymupdf
-pillow
-opencv-python-headless
 easyocr
+opencv-python-headless
+pillow
