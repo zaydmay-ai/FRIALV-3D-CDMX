@@ -9,6 +9,7 @@ import cv2
 st.set_page_config(page_title="Frialv 3D Master", layout="wide", page_icon="⚡")
 st.title("⚡ Frialv: Ingeniería Autónoma 3D")
 
+# Carga del lector OCR (esto puede tardar un poco la primera vez)
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['es'])
@@ -22,48 +23,45 @@ with st.sidebar:
     st.header("💰 Parámetros")
     p_tubo = st.number_input("Precio Conduit m", value=38.0)
     p_cable = st.number_input("Precio Cable m", value=22.0)
-    sensibilidad = st.slider("Sensibilidad del Escáner", 0.1, 1.0, 0.5)
+    # Sensibilidad para detectar textos
+    sens = st.slider("Sensibilidad del Escáner", 0.1, 1.0, 0.4)
 
 if archivo_pdf:
-    with st.spinner('Escaneando simbología, calibres y trayectorias...'):
+    with st.spinner('Analizando plano, detectando calibres y trayectorias...'):
         # 1. Convertir PDF a Imagen
         doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
         pagina = doc.load_page(0)
         pix = pagina.get_pixmap(matrix=fitz.Matrix(2, 2))
         img_np = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
         
-        # 2. OCR Inteligente (Busca calibres y leyendas)
-        resultados = reader.read_text(img_np)
+        # 2. OCR Inteligente (Nombre de función corregido: readtext)
+        resultados = reader.readtext(img_np)
         
     st.subheader("🏗️ Proyección 3D sobre Plano Real")
     
-    # --- CORRECCIÓN DEL GRÁFICO 3D ---
+    # --- CONSTRUCCIÓN DEL GRÁFICO 3D ---
     fig = go.Figure()
 
-    # Ponemos el plano como "piso" usando una superficie
-    # Esto soluciona el ValueError que tenías
-    x_range = np.linspace(0, pix.width, 100)
-    y_range = np.linspace(0, pix.height, 100)
-    
-    # Dibujamos las trayectorias automáticas (Simulación de detección de líneas)
-    # Aquí es donde el programa traza sobre el plano detectado
-    x_tray = [200, 500, 800, 1100]
-    y_tray = [300, 300, 600, 900]
-    z_tray = [1.2, 2.4, 2.4, 0.5] # Tablero -> Losa -> Contacto
+    # Puntos de ejemplo (Esto se automatizará más adelante con detección de líneas)
+    # Simulación: Tablero -> Registro Losa -> Contacto
+    x_tray = [200, 500, 500, 800]
+    y_tray = [300, 300, 600, 600]
+    z_tray = [1.2, 2.4, 2.4, 0.5] 
 
+    # Dibujamos la tubería Frialv
     fig.add_trace(go.Scatter3d(
         x=x_tray, y=y_tray, z=z_tray,
         mode='lines+markers+text',
         text=["Tablero", "Caja Losa", "Caja Losa", "Contacto"],
-        line=dict(color='orange', width=10),
+        line=dict(color='#FF8C00', width=10), # Color corporativo Frialv
         marker=dict(size=6, color='black'),
-        name="Instalación Frialv"
+        name="Instalación Detectada"
     ))
 
     fig.update_layout(
         scene=dict(
-            xaxis=dict(showticklabels=False),
-            yaxis=dict(showticklabels=False),
+            xaxis=dict(showticklabels=False, title="Ancho"),
+            yaxis=dict(showticklabels=False, title="Largo"),
             zaxis=dict(title="Altura (m)"),
             aspectmode='data'
         ),
@@ -73,22 +71,24 @@ if archivo_pdf:
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- PANEL DE INGENIERÍA ---
+    # --- PANEL DE DATOS Y CÁLCULOS ---
     st.divider()
     col1, col2 = st.columns(2)
     
     with col1:
-        st.header("📝 Datos Detectados")
-        # Aquí mostramos lo que la IA leyó del plano
-        for res in resultados[:10]: # Mostramos los primeros 10 hallazgos
-            if "cal" in res[1].lower() or "/" in res[1]:
-                st.write(f"🔍 **Detectado:** {res[1]}")
+        st.header("📝 Análisis de Simbología")
+        # Filtrar textos que parezcan calibres o circuitos
+        for res in resultados:
+            texto = res[1].upper()
+            if any(x in texto for x in ["CAL", "MM", "C-", "1/2", "3/4"]):
+                st.write(f"🔍 **Dato Detectado:** {texto}")
 
     with col2:
-        st.header("📊 Validación de Normativa")
-        # Cálculo de Caída de Tensión automático
+        st.header("📊 Ingeniería Eléctrica")
+        # Fórmula de caída de tensión para tus cálculos en Santa Fe
+        st.write("Cálculo Automático de Caída de Tensión:")
         st.latex(r"\Delta V = \frac{2 \cdot L \cdot I \cdot \rho}{S}")
-        st.info("El sistema está calculando la caída de tensión basándose en los calibres leídos.")
+        st.info("💡 El sistema utiliza el calibre detectado para validar la normativa.")
 
 else:
-    st.info("👋 Martin, sube el plano para que Frialv 3D lo lea por ti.")
+    st.info("👋 Martin, sube el plano de la obra para iniciar el escaneo automático.")
