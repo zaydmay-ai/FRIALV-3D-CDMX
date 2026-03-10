@@ -3,6 +3,5 @@ plotly
 pandas
 numpy
 pymupdf
-easyocr
-opencv-python-headless
+openai
 pillow
