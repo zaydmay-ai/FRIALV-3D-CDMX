@@ -1,2 +1,4 @@
 [server]
-maxMessageSize = 500
+maxMessageSize = 1000
+enableCORS = false
+
