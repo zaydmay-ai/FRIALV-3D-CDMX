@@ -5,11 +5,5 @@ numpy
 pymupdf
 openai
 pillow
-streamlit
-plotly
-pandas
-numpy
-pymupdf
-openai
-pillow
 ezdxf
+scipy
