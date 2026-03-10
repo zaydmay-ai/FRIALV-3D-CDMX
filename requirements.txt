@@ -6,4 +6,4 @@ pymupdf
 openai
 pillow
 ezdxf
-scipy
+fpdf2
